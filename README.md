@@ -46,13 +46,14 @@ Create a `.env` file in the root directory:
 
 ```env
 # AWS Configuration
-VITE_AWS_REGION=ap-south-1
-VITE_AWS_USER_POOL_ID=ap-south-1_TtWbXB2Mz
-VITE_AWS_USER_POOL_WEB_CLIENT_ID=1io0ioohfm2d7ps2fpsjso79l
+# AWS Configuration
+VITE_AWS_REGION=your-aws-region
+VITE_AWS_USER_POOL_ID=your-user-pool-id
+VITE_AWS_USER_POOL_WEB_CLIENT_ID=your-client-id
 
 # API Configuration
-VITE_API_BASE_URL=https://5cbnsn6mm6.execute-api.ap-south-1.amazonaws.com/Prod
-VITE_WEBSOCKET_URL=wss://8yjdh5z9mg.execute-api.ap-south-1.amazonaws.com/prod/
+VITE_API_BASE_URL=https://your-api-id.execute-api.your-region.amazonaws.com/Prod
+VITE_WEBSOCKET_URL=wss://your-ws-api-id.execute-api.your-region.amazonaws.com/prod/
 
 # Feature Flags
 VITE_ENABLE_RECORDING=true
