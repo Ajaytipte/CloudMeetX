@@ -10,6 +10,7 @@ import Settings from './pages/Settings';
 import RecentMeetings from './pages/RecentMeetings';
 import UpcomingMeetings from './pages/UpcomingMeetings';
 import CreateMeetingPage from './pages/CreateMeetingPage';
+import JoinMeetingPage from './pages/JoinMeetingPage';
 import './index.css';
 
 function App() {
@@ -23,6 +24,8 @@ function App() {
           <Route path="/verify-email" element={<VerifyEmail />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/meeting/:meetingId" element={<MeetingRoom />} />
+          <Route path="/join" element={<JoinMeetingPage />} />
+          <Route path="/join/:meetingId" element={<JoinMeetingPage />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/notifications" element={<Notifications />} />
           <Route path="/settings" element={<Settings />} />

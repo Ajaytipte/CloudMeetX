@@ -5,7 +5,6 @@
 
 class SignalingClient {
     constructor(meetingId, userId) {
-        // Use environment variable directly as requested
         this.url = import.meta.env.VITE_WEBSOCKET_URL;
         this.meetingId = meetingId;
         this.userId = userId;
@@ -39,18 +38,25 @@ class SignalingClient {
 
                 console.log('🔌 Connecting to WebSocket:', this.url);
 
-                // Connect to AWS API Gateway WebSocket
-                this.ws = new WebSocket(this.url);
+                // Add parameters to URL for onConnect handler
+                const wsUrl = new URL(this.url);
+                wsUrl.searchParams.append('meetingId', this.meetingId);
+                wsUrl.searchParams.append('userId', this.userId);
+
+                this.ws = new WebSocket(wsUrl.toString());
 
                 this.ws.onopen = () => {
                     console.log('✅ WebSocket connected successfully!');
                     this.reconnectAttempts = 0;
 
-                    // Join meeting room
+                    // We don't need to send explicit 'join' action if onConnect Lambda handles it via query params,
+                    // BUT your sendMessage lambda might rely on it for updates. 
+                    // Let's send a join-presence message to be safe and notify others immediately.
                     this.send({
-                        action: 'join',
+                        action: 'sendMessage',
                         meetingId: this.meetingId,
-                        userId: this.userId
+                        messageType: 'user-joined',
+                        data: { userId: this.userId }
                     });
 
                     // Send queued messages
@@ -77,8 +83,6 @@ class SignalingClient {
                         readyState: this.ws?.readyState,
                         error: error
                     });
-                    // Don't reject immediatly allows retry logic to kick in if needed
-                    // but for initial connection failure we might want to reject
                 };
 
                 this.ws.onclose = (event) => {
@@ -98,28 +102,55 @@ class SignalingClient {
     }
 
     // Handle incoming messages
-    handleMessage(data) {
-        const { type, ...payload } = data;
+    handleMessage(message) {
+        // The Lambda sendMessage wraps content in: { type, from, data, timestamp }
+        // OR it might be a direct message if coming from other sources.
 
-        console.log('📨 Received message:', type, payload);
+        const { type, data, from } = message;
+        console.log('📨 Received message:', type, message);
 
-        // Call registered handlers
-        if (this.handlers[type]) {
-            this.handlers[type](payload);
+        // Filter out messages from self (should be handled by backend, but double check)
+        if (from?.userId === this.userId) {
+            return;
         }
 
-        // Default handlers
+        // 1. Handle "signal" messages (WebRTC)
+        if (type === 'signal') {
+            // Signal data structure: { type: 'offer'|'answer'|'ice', ...payload }
+            const signalType = data?.type;
+
+            // Dispatch to specific signal handlers
+            if (signalType === 'offer' && this.handlers['offer']) {
+                this.handlers['offer']({ userId: from.userId, offer: data.offer });
+            } else if (signalType === 'answer' && this.handlers['answer']) {
+                this.handlers['answer']({ userId: from.userId, answer: data.answer });
+            } else if (signalType === 'ice-candidate' && this.handlers['ice-candidate']) {
+                this.handlers['ice-candidate']({ userId: from.userId, candidate: data.candidate });
+            }
+            return;
+        }
+
+        // 2. Handle specific message types directly
+        if (this.handlers[type]) {
+            this.handlers[type]({ ...data, from });
+            return;
+        }
+
         switch (type) {
             case 'user-joined':
-                console.log('👋 User joined:', payload.userId);
+                if (this.handlers['user-joined']) {
+                    this.handlers['user-joined']({ userId: data.userId });
+                }
                 break;
             case 'user-left':
-                console.log('👋 User left:', payload.userId);
+                if (this.handlers['user-left']) {
+                    this.handlers['user-left']({ userId: data.userId });
+                }
                 break;
-            case 'offer':
-            case 'answer':
-            case 'ice-candidate':
-                // These are handled by registered handlers
+            case 'screen-share':
+                if (this.handlers['screen-share']) {
+                    this.handlers['screen-share']({ userId: from.userId, type: data.type });
+                }
                 break;
             default:
                 console.log('ℹ️ Unhandled message type:', type);
@@ -127,138 +158,108 @@ class SignalingClient {
     }
 
     // Send message through WebSocket
-    send(data) {
+    send(payload) {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            const message = {
-                ...data,
-                meetingId: this.meetingId,
-                userId: this.userId,
-                timestamp: Date.now()
-            };
-
-            this.ws.send(JSON.stringify(message));
-            console.log('📤 Sent message:', data.action || data.type);
+            this.ws.send(JSON.stringify(payload));
+            console.log('📤 Sent message:', payload.messageType || payload.action);
         } else {
             console.log('⏳ WebSocket not ready, queuing message');
-            this.messageQueue.push(data);
+            this.messageQueue.push(payload);
         }
     }
 
-    // Register message handler
     on(type, handler) {
         this.handlers[type] = handler;
     }
 
-    // Remove message handler
     off(type) {
         delete this.handlers[type];
     }
 
+    // --- WebRTC Signaling Methods ---
+
     // Send WebRTC offer
     sendOffer(targetUserId, offer) {
         this.send({
-            action: 'signal',
-            type: 'offer',
-            targetUserId,
-            offer
+            action: 'sendMessage',
+            targetUserId: targetUserId,
+            messageType: 'signal', // Generic signal type wrapper
+            data: {
+                type: 'offer',
+                offer: offer
+            }
         });
     }
 
     // Send WebRTC answer
     sendAnswer(targetUserId, answer) {
         this.send({
-            action: 'signal',
-            type: 'answer',
-            targetUserId,
-            answer
+            action: 'sendMessage',
+            targetUserId: targetUserId,
+            messageType: 'signal',
+            data: {
+                type: 'answer',
+                answer: answer
+            }
         });
     }
 
     // Send ICE candidate
     sendIceCandidate(targetUserId, candidate) {
         this.send({
-            action: 'signal',
-            type: 'ice-candidate',
-            targetUserId,
-            candidate
+            action: 'sendMessage',
+            targetUserId: targetUserId,
+            messageType: 'signal',
+            data: {
+                type: 'ice-candidate',
+                candidate: candidate
+            }
         });
     }
 
-    // Notify screen sharing started
+    // Notify screen sharing
     sendScreenShareStart() {
         this.send({
-            action: 'screen-share',
-            type: 'started'
+            action: 'sendMessage',
+            meetingId: this.meetingId, // Broadcast
+            messageType: 'screen-share',
+            data: { type: 'started' }
         });
     }
 
-    // Notify screen sharing stopped
     sendScreenShareStop() {
         this.send({
-            action: 'screen-share',
-            type: 'stopped'
+            action: 'sendMessage',
+            meetingId: this.meetingId, // Broadcast
+            messageType: 'screen-share',
+            data: { type: 'stopped' }
         });
     }
 
-    // Handle reconnection with exponential backoff
+    // Handle reconnection
     handleReconnect() {
-        // Don't reconnect if we explicitly closed the connection
-        if (this.intentionalClose) {
-            console.log('⚠️ Skipping reconnect: connection was intentionally closed');
-            return;
-        }
+        if (this.intentionalClose) return;
 
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
-            // Exponential backoff: 1s, 2s, 4s, 8s, 16s
             const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
 
-            console.log(`🔄 Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
-
+            console.log(`🔄 Reconnecting in ${delay}ms...`);
             this.reconnectTimeout = setTimeout(() => {
-                console.log('🔌 Attempting to reconnect...');
-                this.connect().catch(error => {
-                    console.error('❌ Reconnection failed:', error.message);
-                    // The onclose handler will trigger another reconnect attempt
-                });
+                this.connect().catch(e => console.error('Reconnect failed', e));
             }, delay);
         } else {
-            console.error('❌ Max reconnection attempts reached. Please refresh the page or check your connection.');
-            if (this.handlers['connection-failed']) {
-                this.handlers['connection-failed']();
-            }
+            console.error('❌ Max reconnection attempts reached');
+            if (this.handlers['connection-failed']) this.handlers['connection-failed']();
         }
     }
 
-    // Disconnect from WebSocket
     disconnect() {
+        this.intentionalClose = true;
         if (this.ws) {
-            // Mark this as an intentional close to prevent reconnection
-            this.intentionalClose = true;
-
-            // Clear any pending reconnection attempts
-            if (this.reconnectTimeout) {
-                clearTimeout(this.reconnectTimeout);
-                this.reconnectTimeout = null;
-            }
-
-            // Send leave message
-            this.send({
-                action: 'leave',
-                meetingId: this.meetingId,
-                userId: this.userId
-            });
-
-            // Close connection
             this.ws.close();
             this.ws = null;
-            console.log('👋 Disconnected from signaling server');
         }
-    }
-
-    // Check connection status
-    isConnected() {
-        return this.ws && this.ws.readyState === WebSocket.OPEN;
     }
 }
 

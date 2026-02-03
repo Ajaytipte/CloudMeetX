@@ -140,12 +140,44 @@ const MeetingRoom = () => {
             {/* Main Content */}
             <div className="flex-1 flex overflow-hidden">
                 {/* Video Grid */}
-                <div className="flex-1 p-4 overflow-auto">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 h-full">
-                        {activeParticipants.map((participant) => (
-                            <ParticipantVideo key={participant.id} participant={participant} />
-                        ))}
-                    </div>
+                {/* Video Grid */}
+                <div className={`p-4 grid gap-4 h-full overflow-y-auto ${remoteStreams.length === 0 ? 'grid-cols-1' :
+                        remoteStreams.length === 1 ? 'grid-cols-1 md:grid-cols-2' :
+                            remoteStreams.length <= 3 ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-2' :
+                                'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'
+                    }`}>
+
+                    {/* Local Participant */}
+                    <ParticipantVideo
+                        stream={localStream}
+                        isMuted={isMuted}
+                        isVideoOff={isVideoOff}
+                        name="You"
+                        isLocal={true}
+                    />
+
+                    {/* Remote Participants */}
+                    {remoteStreams.map((p) => (
+                        <ParticipantVideo
+                            key={p.userId}
+                            stream={p.stream}
+                            isMuted={false} // Would need connection metadata for this
+                            isVideoOff={!p.stream?.getVideoTracks()[0]?.enabled}
+                            name={`User ${p.userId}`} // Replace with actual name if available
+                            isLocal={false}
+                        />
+                    ))}
+
+                    {/* Show placeholder if waiting for others */}
+                    {remoteStreams.length === 0 && (
+                        <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-gray-700 rounded-2xl bg-gray-800/50 text-gray-400">
+                            <div className="w-16 h-16 bg-gray-700 rounded-full flex items-center justify-center mb-4 animate-pulse">
+                                <Users className="w-8 h-8 opacity-50" />
+                            </div>
+                            <h3 className="text-xl font-medium mb-1">Waiting for others</h3>
+                            <p className="text-sm opacity-60">Share the meeting link to invite participants</p>
+                        </div>
+                    )}
                 </div>
 
                 {/* Chat Panel */}
