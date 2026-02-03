@@ -1,0 +1,491 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "CloudMeetX REST API Infrastructure - DynamoDB + Lambda + API Gateway",
+    "Parameters": {
+        "MeetingsTableName": {
+            "Type": "String",
+            "Default": "CloudMeetX-Meetings",
+            "Description": "DynamoDB table for meetings"
+        },
+        "ChatTableName": {
+            "Type": "String",
+            "Default": "CloudMeetX-ChatMessages",
+            "Description": "DynamoDB table for chat messages"
+        },
+        "ApiStageName": {
+            "Type": "String",
+            "Default": "prod",
+            "Description": "API Gateway stage name"
+        }
+    },
+    "Resources": {
+        "MeetingsTable": {
+            "Type": "AWS::DynamoDB::Table",
+            "Properties": {
+                "TableName": {
+                    "Ref": "MeetingsTableName"
+                },
+                "AttributeDefinitions": [
+                    {
+                        "AttributeName": "meetingId",
+                        "AttributeType": "S"
+                    },
+                    {
+                        "AttributeName": "hostId",
+                        "AttributeType": "S"
+                    },
+                    {
+                        "AttributeName": "createdAt",
+                        "AttributeType": "S"
+                    }
+                ],
+                "KeySchema": [
+                    {
+                        "AttributeName": "meetingId",
+                        "KeyType": "HASH"
+                    }
+                ],
+                "GlobalSecondaryIndexes": [
+                    {
+                        "IndexName": "hostId-createdAt-index",
+                        "KeySchema": [
+                            {
+                                "AttributeName": "hostId",
+                                "KeyType": "HASH"
+                            },
+                            {
+                                "AttributeName": "createdAt",
+                                "KeyType": "RANGE"
+                            }
+                        ],
+                        "Projection": {
+                            "ProjectionType": "ALL"
+                        }
+                    }
+                ],
+                "BillingMode": "PAY_PER_REQUEST",
+                "TimeToLiveSpecification": {
+                    "Enabled": true,
+                    "AttributeName": "ttl"
+                },
+                "StreamSpecification": {
+                    "StreamViewType": "NEW_AND_OLD_IMAGES"
+                },
+                "Tags": [
+                    {
+                        "Key": "Project",
+                        "Value": "CloudMeetX"
+                    }
+                ]
+            }
+        },
+        "ChatMessagesTable": {
+            "Type": "AWS::DynamoDB::Table",
+            "Properties": {
+                "TableName": {
+                    "Ref": "ChatTableName"
+                },
+                "AttributeDefinitions": [
+                    {
+                        "AttributeName": "messageId",
+                        "AttributeType": "S"
+                    },
+                    {
+                        "AttributeName": "meetingId",
+                        "AttributeType": "S"
+                    },
+                    {
+                        "AttributeName": "timestamp",
+                        "AttributeType": "S"
+                    }
+                ],
+                "KeySchema": [
+                    {
+                        "AttributeName": "messageId",
+                        "KeyType": "HASH"
+                    }
+                ],
+                "GlobalSecondaryIndexes": [
+                    {
+                        "IndexName": "meetingId-timestamp-index",
+                        "KeySchema": [
+                            {
+                                "AttributeName": "meetingId",
+                                "KeyType": "HASH"
+                            },
+                            {
+                                "AttributeName": "timestamp",
+                                "KeyType": "RANGE"
+                            }
+                        ],
+                        "Projection": {
+                            "ProjectionType": "ALL"
+                        }
+                    }
+                ],
+                "BillingMode": "PAY_PER_REQUEST",
+                "TimeToLiveSpecification": {
+                    "Enabled": true,
+                    "AttributeName": "ttl"
+                },
+                "Tags": [
+                    {
+                        "Key": "Project",
+                        "Value": "CloudMeetX"
+                    }
+                ]
+            }
+        },
+        "LambdaExecutionRole": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "RoleName": "CloudMeetX-API-ExecutionRole",
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": "lambda.amazonaws.com"
+                            },
+                            "Action": "sts:AssumeRole"
+                        }
+                    ]
+                },
+                "ManagedPolicyArns": [
+                    "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+                ],
+                "Policies": [
+                    {
+                        "PolicyName": "DynamoDBAccess",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "dynamodb:PutItem",
+                                        "dynamodb:GetItem",
+                                        "dynamodb:UpdateItem",
+                                        "dynamodb:DeleteItem",
+                                        "dynamodb:Query",
+                                        "dynamodb:Scan"
+                                    ],
+                                    "Resource": [
+                                        {
+                                            "Fn::GetAtt": [
+                                                "MeetingsTable",
+                                                "Arn"
+                                            ]
+                                        },
+                                        {
+                                            "Fn::Join": [
+                                                "",
+                                                [
+                                                    {
+                                                        "Fn::GetAtt": [
+                                                            "MeetingsTable",
+                                                            "Arn"
+                                                        ]
+                                                    },
+                                                    "/index/*"
+                                                ]
+                                            ]
+                                        },
+                                        {
+                                            "Fn::GetAtt": [
+                                                "ChatMessagesTable",
+                                                "Arn"
+                                            ]
+                                        },
+                                        {
+                                            "Fn::Join": [
+                                                "",
+                                                [
+                                                    {
+                                                        "Fn::GetAtt": [
+                                                            "ChatMessagesTable",
+                                                            "Arn"
+                                                        ]
+                                                    },
+                                                    "/index/*"
+                                                ]
+                                            ]
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        "RestAPI": {
+            "Type": "AWS::ApiGateway::RestApi",
+            "Properties": {
+                "Name": "CloudMeetX-REST-API",
+                "Description": "CloudMeetX REST API for meetings and chat",
+                "EndpointConfiguration": {
+                    "Types": [
+                        "REGIONAL"
+                    ]
+                }
+            }
+        },
+        "MeetingsResource": {
+            "Type": "AWS::ApiGateway::Resource",
+            "Properties": {
+                "RestApiId": {
+                    "Ref": "RestAPI"
+                },
+                "ParentId": {
+                    "Fn::GetAtt": [
+                        "RestAPI",
+                        "RootResourceId"
+                    ]
+                },
+                "PathPart": "meetings"
+            }
+        },
+        "MeetingsCreateResource": {
+            "Type": "AWS::ApiGateway::Resource",
+            "Properties": {
+                "RestApiId": {
+                    "Ref": "RestAPI"
+                },
+                "ParentId": {
+                    "Ref": "MeetingsResource"
+                },
+                "PathPart": "create"
+            }
+        },
+        "MeetingsJoinResource": {
+            "Type": "AWS::ApiGateway::Resource",
+            "Properties": {
+                "RestApiId": {
+                    "Ref": "RestAPI"
+                },
+                "ParentId": {
+                    "Ref": "MeetingsResource"
+                },
+                "PathPart": "join"
+            }
+        },
+        "ChatResource": {
+            "Type": "AWS::ApiGateway::Resource",
+            "Properties": {
+                "RestApiId": {
+                    "Ref": "RestAPI"
+                },
+                "ParentId": {
+                    "Fn::GetAtt": [
+                        "RestAPI",
+                        "RootResourceId"
+                    ]
+                },
+                "PathPart": "chat"
+            }
+        },
+        "ChatSaveResource": {
+            "Type": "AWS::ApiGateway::Resource",
+            "Properties": {
+                "RestApiId": {
+                    "Ref": "RestAPI"
+                },
+                "ParentId": {
+                    "Ref": "ChatResource"
+                },
+                "PathPart": "save"
+            }
+        },
+        "ChatHistoryResource": {
+            "Type": "AWS::ApiGateway::Resource",
+            "Properties": {
+                "RestApiId": {
+                    "Ref": "RestAPI"
+                },
+                "ParentId": {
+                    "Ref": "ChatResource"
+                },
+                "PathPart": "history"
+            }
+        },
+        "CreateMeetingFunction": {
+            "Type": "AWS::Lambda::Function",
+            "Properties": {
+                "FunctionName": "CloudMeetX-CreateMeeting",
+                "Runtime": "nodejs18.x",
+                "Role": {
+                    "Fn::GetAtt": [
+                        "LambdaExecutionRole",
+                        "Arn"
+                    ]
+                },
+                "Handler": "index.handler",
+                "Code": {
+                    "ZipFile": "// Deploy code separately"
+                },
+                "Timeout": 10,
+                "MemorySize": 256,
+                "Environment": {
+                    "Variables": {
+                        "MEETINGS_TABLE": {
+                            "Ref": "MeetingsTableName"
+                        }
+                    }
+                }
+            }
+        },
+        "JoinMeetingFunction": {
+            "Type": "AWS::Lambda::Function",
+            "Properties": {
+                "FunctionName": "CloudMeetX-JoinMeeting",
+                "Runtime": "nodejs18.x",
+                "Role": {
+                    "Fn::GetAtt": [
+                        "LambdaExecutionRole",
+                        "Arn"
+                    ]
+                },
+                "Handler": "index.handler",
+                "Code": {
+                    "ZipFile": "// Deploy code separately"
+                },
+                "Timeout": 10,
+                "MemorySize": 256,
+                "Environment": {
+                    "Variables": {
+                        "MEETINGS_TABLE": {
+                            "Ref": "MeetingsTableName"
+                        }
+                    }
+                }
+            }
+        },
+        "ListMeetingsFunction": {
+            "Type": "AWS::Lambda::Function",
+            "Properties": {
+                "FunctionName": "CloudMeetX-ListMeetings",
+                "Runtime": "nodejs18.x",
+                "Role": {
+                    "Fn::GetAtt": [
+                        "LambdaExecutionRole",
+                        "Arn"
+                    ]
+                },
+                "Handler": "index.handler",
+                "Code": {
+                    "ZipFile": "// Deploy code separately"
+                },
+                "Timeout": 15,
+                "MemorySize": 512,
+                "Environment": {
+                    "Variables": {
+                        "MEETINGS_TABLE": {
+                            "Ref": "MeetingsTableName"
+                        }
+                    }
+                }
+            }
+        },
+        "SaveChatFunction": {
+            "Type": "AWS::Lambda::Function",
+            "Properties": {
+                "FunctionName": "CloudMeetX-SaveChat",
+                "Runtime": "nodejs18.x",
+                "Role": {
+                    "Fn::GetAtt": [
+                        "LambdaExecutionRole",
+                        "Arn"
+                    ]
+                },
+                "Handler": "index.handler",
+                "Code": {
+                    "ZipFile": "// Deploy code separately"
+                },
+                "Timeout": 10,
+                "MemorySize": 256,
+                "Environment": {
+                    "Variables": {
+                        "CHAT_TABLE": {
+                            "Ref": "ChatTableName"
+                        }
+                    }
+                }
+            }
+        },
+        "GetChatHistoryFunction": {
+            "Type": "AWS::Lambda::Function",
+            "Properties": {
+                "FunctionName": "CloudMeetX-GetChatHistory",
+                "Runtime": "nodejs18.x",
+                "Role": {
+                    "Fn::GetAtt": [
+                        "LambdaExecutionRole",
+                        "Arn"
+                    ]
+                },
+                "Handler": "index.handler",
+                "Code": {
+                    "ZipFile": "// Deploy code separately"
+                },
+                "Timeout": 15,
+                "MemorySize": 512,
+                "Environment": {
+                    "Variables": {
+                        "CHAT_TABLE": {
+                            "Ref": "ChatTableName"
+                        }
+                    }
+                }
+            }
+        },
+        "ApiDeployment": {
+            "Type": "AWS::ApiGateway::Deployment",
+            "DependsOn": [
+                "CreateMeetingMethod",
+                "JoinMeetingMethod",
+                "ListMeetingsMethod",
+                "SaveChatMethod",
+                "GetChatHistoryMethod"
+            ],
+            "Properties": {
+                "RestApiId": {
+                    "Ref": "RestAPI"
+                },
+                "StageName": {
+                    "Ref": "ApiStageName"
+                }
+            }
+        }
+    },
+    "Outputs": {
+        "RestAPIUrl": {
+            "Description": "REST API URL",
+            "Value": {
+                "Fn::Sub": "https://${RestAPI}.execute-api.${AWS::Region}.amazonaws.com/${ApiStageName}"
+            }
+        },
+        "MeetingsTableName": {
+            "Description": "DynamoDB Meetings Table",
+            "Value": {
+                "Ref": "MeetingsTable"
+            }
+        },
+        "ChatTableName": {
+            "Description": "DynamoDB Chat Table",
+            "Value": {
+                "Ref": "ChatMessagesTable"
+            }
+        },
+        "LambdaRoleArn": {
+            "Description": "Lambda Execution Role ARN",
+            "Value": {
+                "Fn::GetAtt": [
+                    "LambdaExecutionRole",
+                    "Arn"
+                ]
+            }
+        }
+    }
+}

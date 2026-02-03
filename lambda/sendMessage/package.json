@@ -1,0 +1,23 @@
+{
+    "name": "cloudmeetx-sendmessage",
+    "version": "1.0.0",
+    "description": "CloudMeetX WebSocket sendMessage Lambda function",
+    "type": "module",
+    "main": "index.mjs",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "dependencies": {
+        "@aws-sdk/client-dynamodb": "^3.0.0",
+        "@aws-sdk/lib-dynamodb": "^3.0.0",
+        "@aws-sdk/client-apigatewaymanagementapi": "^3.0.0"
+    },
+    "keywords": [
+        "lambda",
+        "websocket",
+        "dynamodb",
+        "apigateway"
+    ],
+    "author": "CloudMeetX",
+    "license": "MIT"
+}

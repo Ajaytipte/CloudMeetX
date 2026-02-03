@@ -1,0 +1,11 @@
+{
+    "name": "cloudmeetx-create-meeting",
+    "version": "1.0.0",
+    "description": "CloudMeetX Create Meeting API",
+    "type": "module",
+    "main": "index.mjs",
+    "dependencies": {
+        "@aws-sdk/client-dynamodb": "^3.0.0",
+        "@aws-sdk/lib-dynamodb": "^3.0.0"
+    }
+}

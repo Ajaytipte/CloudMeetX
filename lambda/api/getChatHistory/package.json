@@ -1,0 +1,11 @@
+{
+    "name": "cloudmeetx-get-chat-history",
+    "version": "1.0.0",
+    "description": "CloudMeetX Get Chat History API",
+    "type": "module",
+    "main": "index.mjs",
+    "dependencies": {
+        "@aws-sdk/client-dynamodb": "^3.0.0",
+        "@aws-sdk/lib-dynamodb": "^3.0.0"
+    }
+}
