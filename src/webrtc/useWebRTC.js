@@ -68,21 +68,39 @@ const useWebRTC = (meetingId, userId) => {
         try {
             setConnectionState('connecting');
 
-            // Get local media stream
-            const stream = await getUserMedia();
-            setLocalStream(stream);
-            localStreamRef.current = stream;
+            // 1. Get local media stream (Wait for user permission)
+            let localStream;
+            try {
+                // Try video + audio first
+                localStream = await getUserMedia();
+            } catch (mediaError) {
+                console.warn('⚠️ Failed to get video/audio, trying audio only:', mediaError);
+                try {
+                    // Fallback to audio only
+                    localStream = await getUserMedia({ video: false, audio: true });
+                } catch (audioError) {
+                    console.error('❌ Failed to get any media stream:', audioError);
+                    setError('Camera/Microphone access denied. Please check permissions.');
+                    setConnectionState('failed');
+                    return; // Stop initialization
+                }
+            }
 
-            // Initialize signaling
+            // 2. Set stream to state and ref ONLY after successfully acquiring it
+            setLocalStream(localStream);
+            localStreamRef.current = localStream;
+            console.log('✅ Local stream initialized:', localStream.id);
+
+            // 3. Initialize signaling
             signalingClient.current = new SignalingClient(
                 meetingId,
                 userId
             );
 
-            // Register signaling handlers
+            // 4. Register signaling handlers
             registerSignalingHandlers();
 
-            // Connect to signaling server
+            // 5. Connect to signaling server
             await signalingClient.current.connect();
 
             setConnectionState('connected');
