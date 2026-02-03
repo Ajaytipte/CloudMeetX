@@ -142,9 +142,9 @@ const MeetingRoom = () => {
                 {/* Video Grid */}
                 {/* Video Grid */}
                 <div className={`p-4 grid gap-4 h-full overflow-y-auto ${remoteStreams.length === 0 ? 'grid-cols-1' :
-                        remoteStreams.length === 1 ? 'grid-cols-1 md:grid-cols-2' :
-                            remoteStreams.length <= 3 ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-2' :
-                                'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'
+                    remoteStreams.length === 1 ? 'grid-cols-1 md:grid-cols-2' :
+                        remoteStreams.length <= 3 ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-2' :
+                            'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'
                     }`}>
 
                     {/* Local Participant */}
@@ -397,27 +397,27 @@ const MeetingRoom = () => {
 };
 
 // Helper Component for rendering video
-const ParticipantVideo = ({ participant }) => {
+const ParticipantVideo = ({ stream, isMuted, isVideoOff, name, isLocal }) => {
     const videoRef = useRef(null);
 
     useEffect(() => {
-        if (videoRef.current && participant.stream) {
-            videoRef.current.srcObject = participant.stream;
+        if (videoRef.current && stream) {
+            videoRef.current.srcObject = stream;
         }
-    }, [participant.stream]);
+    }, [stream]);
 
     return (
         <div className="relative bg-gray-800 rounded-xl overflow-hidden group aspect-video">
             {/* Video or Fallback */}
-            {participant.isVideoOff || !participant.stream ? (
+            {isVideoOff || !stream ? (
                 <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900 border border-gray-700">
                     <div className="text-center">
                         <div className="w-20 h-20 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-3">
                             <span className="text-2xl font-bold text-white">
-                                {participant.name.substring(0, 2).toUpperCase()}
+                                {name ? name.substring(0, 2).toUpperCase() : 'U'}
                             </span>
                         </div>
-                        <p className="text-white font-semibold">{participant.name}</p>
+                        <p className="text-white font-semibold">{name}</p>
                         <p className="text-gray-500 text-sm mt-1">Video Off</p>
                     </div>
                 </div>
@@ -426,7 +426,7 @@ const ParticipantVideo = ({ participant }) => {
                     ref={videoRef}
                     autoPlay
                     playsInline
-                    muted={participant.id === 'local'} // Mute local video to prevent echo
+                    muted={isLocal} // Mute local video to prevent echo
                     className="w-full h-full object-cover transform scale-x-[-1]" // Mirror local video
                 />
             )}
@@ -436,9 +436,9 @@ const ParticipantVideo = ({ participant }) => {
                 <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between">
                     <div className="flex items-center space-x-2">
                         <span className="text-white font-semibold text-sm drop-shadow-md">
-                            {participant.name} {participant.id === 'local' && '(You)'}
+                            {name} {isLocal && '(You)'}
                         </span>
-                        {participant.isMuted && (
+                        {isMuted && (
                             <div className="bg-red-500/90 rounded-full p-1.5 backdrop-blur-sm">
                                 <MicOff className="w-3 h-3 text-white" />
                             </div>
@@ -452,15 +452,11 @@ const ParticipantVideo = ({ participant }) => {
 
             {/* Status Indicators */}
             <div className="absolute top-3 right-3 flex space-x-2">
-                {participant.isHost && (
-                    <span className="px-2 py-1 bg-blue-600/90 backdrop-blur-sm text-white text-xs font-semibold rounded-md shadow-sm">
-                        Host
-                    </span>
-                )}
+                {/* Host indicator removed for generic usage or pass isHost prop if needed */}
             </div>
 
             {/* Connection State (Debug) */}
-            {participant.id === 'local' && (
+            {isLocal && (
                 <div className="absolute top-3 left-3">
                     <span className="px-2 py-1 bg-black/50 backdrop-blur-sm text-green-400 text-xs font-mono rounded-md">
                         Signal: Active
