@@ -103,57 +103,91 @@ class SignalingClient {
 
     // Handle incoming messages
     handleMessage(message) {
-        // The Lambda sendMessage wraps content in: { type, from, data, timestamp }
-        // OR it might be a direct message if coming from other sources.
-
+        // AWS Lambda sendMessage wraps content in: { type, from, data, timestamp }
         const { type, data, from } = message;
         console.log('📨 Received message:', type, message);
 
-        // Filter out messages from self (should be handled by backend, but double check)
+        // Filter out messages from self (backend should handle this, but double check)
         if (from?.userId === this.userId) {
+            console.log('🔇 Ignoring message from self');
             return;
         }
 
-        // 1. Handle "signal" messages (WebRTC)
-        if (type === 'signal') {
-            // Signal data structure: { type: 'offer'|'answer'|'ice', ...payload }
-            const signalType = data?.type;
-
-            // Dispatch to specific signal handlers
-            if (signalType === 'offer' && this.handlers['offer']) {
-                this.handlers['offer']({ userId: from.userId, offer: data.offer });
-            } else if (signalType === 'answer' && this.handlers['answer']) {
-                this.handlers['answer']({ userId: from.userId, answer: data.answer });
-            } else if (signalType === 'ice-candidate' && this.handlers['ice-candidate']) {
-                this.handlers['ice-candidate']({ userId: from.userId, candidate: data.candidate });
-            }
-            return;
-        }
-
-        // 2. Handle specific message types directly
-        if (this.handlers[type]) {
-            this.handlers[type]({ ...data, from });
-            return;
-        }
-
+        // Handle WebRTC signaling messages directly by type
         switch (type) {
+            case 'offer':
+                if (this.handlers['offer']) {
+                    console.log('📨 Handling offer from:', from?.userId);
+                    this.handlers['offer']({
+                        userId: from?.userId,
+                        offer: data.offer
+                    });
+                }
+                break;
+
+            case 'answer':
+                if (this.handlers['answer']) {
+                    console.log('📨 Handling answer from:', from?.userId);
+                    this.handlers['answer']({
+                        userId: from?.userId,
+                        answer: data.answer
+                    });
+                }
+                break;
+
+            case 'candidate':
+                if (this.handlers['candidate']) {
+                    console.log('📨 Handling ICE candidate from:', from?.userId);
+                    this.handlers['candidate']({
+                        userId: from?.userId,
+                        candidate: data.candidate
+                    });
+                }
+                break;
+
+            case 'ready':
+                // Peer is ready to receive offers
+                if (this.handlers['ready']) {
+                    console.log('📨 Peer ready:', from?.userId);
+                    this.handlers['ready']({ userId: from?.userId });
+                }
+                break;
+
+            case 'join':
             case 'user-joined':
                 if (this.handlers['user-joined']) {
-                    this.handlers['user-joined']({ userId: data.userId });
+                    console.log('👋 User joined:', data.userId || from?.userId);
+                    this.handlers['user-joined']({
+                        userId: data.userId || from?.userId
+                    });
                 }
                 break;
+
             case 'user-left':
                 if (this.handlers['user-left']) {
-                    this.handlers['user-left']({ userId: data.userId });
+                    console.log('👋 User left:', data.userId || from?.userId);
+                    this.handlers['user-left']({
+                        userId: data.userId || from?.userId
+                    });
                 }
                 break;
+
             case 'screen-share':
                 if (this.handlers['screen-share']) {
-                    this.handlers['screen-share']({ userId: from.userId, type: data.type });
+                    console.log('🖥️ Screen share event:', data.type);
+                    this.handlers['screen-share']({
+                        userId: from?.userId,
+                        type: data.type
+                    });
                 }
                 break;
+
             default:
                 console.log('ℹ️ Unhandled message type:', type);
+                // Try generic handler
+                if (this.handlers[type]) {
+                    this.handlers[type]({ ...data, from });
+                }
         }
     }
 
@@ -182,39 +216,53 @@ class SignalingClient {
     sendOffer(targetUserId, offer) {
         this.send({
             action: 'sendMessage',
+            meetingId: this.meetingId,
             targetUserId: targetUserId,
-            messageType: 'signal', // Generic signal type wrapper
+            messageType: 'offer',
             data: {
-                type: 'offer',
                 offer: offer
             }
         });
+        console.log('📤 Sent offer to:', targetUserId);
     }
 
     // Send WebRTC answer
     sendAnswer(targetUserId, answer) {
         this.send({
             action: 'sendMessage',
+            meetingId: this.meetingId,
             targetUserId: targetUserId,
-            messageType: 'signal',
+            messageType: 'answer',
             data: {
-                type: 'answer',
                 answer: answer
             }
         });
+        console.log('📤 Sent answer to:', targetUserId);
     }
 
     // Send ICE candidate
     sendIceCandidate(targetUserId, candidate) {
         this.send({
             action: 'sendMessage',
+            meetingId: this.meetingId,
             targetUserId: targetUserId,
-            messageType: 'signal',
+            messageType: 'candidate',
             data: {
-                type: 'ice-candidate',
                 candidate: candidate
             }
         });
+        console.log('📤 Sent ICE candidate to:', targetUserId);
+    }
+
+    // Send ready signal (guest ready to receive offer)
+    sendReady() {
+        this.send({
+            action: 'sendMessage',
+            meetingId: this.meetingId,
+            messageType: 'ready',
+            data: { userId: this.userId }
+        });
+        console.log('📤 Sent ready signal');
     }
 
     // Notify screen sharing

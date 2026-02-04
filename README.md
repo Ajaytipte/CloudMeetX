@@ -145,6 +145,86 @@ Deploy the functions located in the `/lambda` directory.
 
 ---
 
+## 🎥 WebRTC Implementation
+
+CloudMeetX uses **production-ready WebRTC** for two-way video conferencing. The implementation includes:
+
+- ✅ Complete peer-to-peer connections (host ↔ guest)
+- ✅ Full signaling protocol (offer → answer → ICE candidates)
+- ✅ AWS WebSocket API integration
+- ✅ Comprehensive error handling
+- ✅ ICE connection monitoring
+
+### 📚 Documentation
+
+| Document | Description |
+|----------|-------------|
+| **[QUICK_START_TESTING.md](docs/QUICK_START_TESTING.md)** | Quick guide to test WebRTC locally |
+| **[WEBRTC_IMPLEMENTATION.md](docs/WEBRTC_IMPLEMENTATION.md)** | Complete implementation details |
+| **[WEBRTC_UPDATE_SUMMARY.md](docs/WEBRTC_UPDATE_SUMMARY.md)** | Summary of production updates |
+| **[SIGNALING_FLOW_DIAGRAM.md](docs/SIGNALING_FLOW_DIAGRAM.md)** | Visual signaling flow diagrams |
+| **[IMPLEMENTATION_CHECKLIST.md](docs/IMPLEMENTATION_CHECKLIST.md)** | Verification checklist |
+
+### 🧪 Quick Test
+
+```bash
+# Start development server
+npm run dev
+
+# Open browser console and run:
+window.testWebRTC.runAll()
+```
+
+**Two-Person Test**:
+1. Open two browser windows
+2. Window 1: Create meeting (host)
+3. Window 2: Join meeting (guest)
+4. Both should see each other's video ✅
+
+### 🔍 Expected Console Output
+
+**Host should see**:
+```
+✅ WebSocket connected successfully!
+📤 Sent ready signal
+📨 Peer ready, creating offer for: user-xxx
+✅ Set local description (offer)
+📤 Sent offer to: user-xxx
+📥 Handling answer from user-xxx
+✅ WebRTC handshake completed
+📺 Received remote video track
+```
+
+**Guest should see**:
+```
+✅ WebSocket connected successfully!
+📤 Sent ready signal
+📥 Handling offer from user-xxx
+✅ Set local description (answer)
+📤 Sent answer to: user-xxx
+📺 Received remote video track
+```
+
+### ⚙️ WebRTC Configuration
+
+**STUN Server**: `stun:stun.l.google.com:19302` (Google's public STUN)
+
+**For production NAT traversal**, add a TURN server in `src/webrtc/useWebRTC.js`:
+```javascript
+const ICE_SERVERS = {
+    iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        {
+            urls: 'turn:your-turn-server.com:3478',
+            username: 'your-username',
+            credential: 'your-password'
+        }
+    ]
+};
+```
+
+---
+
 ## 🐛 Troubleshooting
 
 ### WebSocket Connection Fails
@@ -157,8 +237,16 @@ Deploy the functions located in the `/lambda` directory.
 *   Ensure Lambda IAM roles have permission to access DynamoDB used.
 
 ### Video/Audio Issues
-*   Ensure browser permissions for Camera/Mic are allowed.
-*   Check STUN server connectivity (default: Google STUN).
+*   **No remote video**: Check console for "📺 Received remote track" messages. Verify both peers completed WebRTC handshake.
+*   **Camera permission denied**: Grant browser permissions and refresh the page.
+*   **ICE connection failed**: Firewall may be blocking WebRTC. Try different network or add TURN server.
+*   **WebRTC not supported**: Use latest Chrome, Firefox, or Edge browser.
+*   **Audio echo**: Ensure local video is muted (already handled in code).
+
+**Detailed Debugging**:
+- Open `chrome://webrtc-internals/` (Chrome/Edge) or `about:webrtc` (Firefox)
+- Run `window.testWebRTC.runAll()` in browser console
+- Check [QUICK_START_TESTING.md](docs/QUICK_START_TESTING.md) for step-by-step troubleshooting
 
 ---
 

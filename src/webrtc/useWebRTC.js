@@ -103,6 +103,9 @@ const useWebRTC = (meetingId, userId) => {
             // 5. Connect to signaling server
             await signalingClient.current.connect();
 
+            // 6. Send ready signal to notify others we're ready to receive offers
+            signalingClient.current.sendReady();
+
             setConnectionState('connected');
         } catch (err) {
             console.error('❌ Error initializing WebRTC:', err);
@@ -115,10 +118,17 @@ const useWebRTC = (meetingId, userId) => {
     const registerSignalingHandlers = () => {
         const client = signalingClient.current;
 
-        // User joined
-        client.on('user-joined', async ({ userId: remoteUserId }) => {
-            console.log('👋 User joined, creating offer for:', remoteUserId);
+        // Peer is ready - create offer for them
+        client.on('ready', async ({ userId: remoteUserId }) => {
+            console.log('📨 Peer ready, creating offer for:', remoteUserId);
             await createPeerConnection(remoteUserId, true);
+        });
+
+        // User joined (legacy support)
+        client.on('user-joined', async ({ userId: remoteUserId }) => {
+            console.log('👋 User joined:', remoteUserId);
+            // Don't auto-create offer - wait for ready signal
+            updateParticipant(remoteUserId, { status: 'joined' });
         });
 
         // User left
@@ -139,8 +149,8 @@ const useWebRTC = (meetingId, userId) => {
             await handleAnswer(remoteUserId, answer);
         });
 
-        // Received ICE candidate
-        client.on('ice-candidate', async ({ userId: remoteUserId, candidate }) => {
+        // Received ICE candidate (using 'candidate' instead of 'ice-candidate')
+        client.on('candidate', async ({ userId: remoteUserId, candidate }) => {
             console.log('📨 Received ICE candidate from:', remoteUserId);
             await handleIceCandidate(remoteUserId, candidate);
         });
@@ -166,93 +176,155 @@ const useWebRTC = (meetingId, userId) => {
     // Create peer connection
     const createPeerConnection = async (remoteUserId, createOffer = false) => {
         try {
+            // Check if connection already exists
             if (peerConnections.current.has(remoteUserId)) {
                 console.log('⚠️ Peer connection already exists for:', remoteUserId);
                 return peerConnections.current.get(remoteUserId);
             }
 
+            // Ensure we have local stream before creating peer connection
+            if (!localStreamRef.current) {
+                console.error('❌ Cannot create peer connection: No local stream available');
+                throw new Error('Local stream not initialized');
+            }
+
+            console.log(`🔗 Creating peer connection for ${remoteUserId} (offer: ${createOffer})`);
+
             const pc = new RTCPeerConnection(ICE_SERVERS);
             peerConnections.current.set(remoteUserId, pc);
 
-            // Add local stream tracks
-            if (localStreamRef.current) {
-                localStreamRef.current.getTracks().forEach(track => {
-                    pc.addTrack(track, localStreamRef.current);
-                });
-            }
+            // Add local stream tracks to peer connection
+            localStreamRef.current.getTracks().forEach(track => {
+                console.log(`➕ Adding ${track.kind} track to peer connection`);
+                pc.addTrack(track, localStreamRef.current);
+            });
 
             // Handle ICE candidates
             pc.onicecandidate = (event) => {
                 if (event.candidate) {
+                    console.log(`🧊 ICE candidate for ${remoteUserId}`);
                     signalingClient.current.sendIceCandidate(remoteUserId, event.candidate);
+                } else {
+                    console.log(`✅ ICE gathering complete for ${remoteUserId}`);
                 }
+            };
+
+            // Handle ICE connection state
+            pc.oniceconnectionstatechange = () => {
+                console.log(`🧊 ICE connection state for ${remoteUserId}:`, pc.iceConnectionState);
             };
 
             // Handle remote stream
             pc.ontrack = (event) => {
-                console.log('📺 Received remote track from:', remoteUserId);
+                console.log(`📺 Received remote ${event.track.kind} track from:`, remoteUserId);
                 const [remoteStream] = event.streams;
 
-                setRemoteStreams(prev => {
-                    const newMap = new Map(prev);
-                    newMap.set(remoteUserId, remoteStream);
-                    return newMap;
-                });
+                if (remoteStream) {
+                    setRemoteStreams(prev => {
+                        const newMap = new Map(prev);
+                        newMap.set(remoteUserId, remoteStream);
+                        return newMap;
+                    });
 
-                updateParticipant(remoteUserId, {
-                    stream: remoteStream,
-                    hasAudio: remoteStream.getAudioTracks().length > 0,
-                    hasVideo: remoteStream.getVideoTracks().length > 0
-                });
+                    updateParticipant(remoteUserId, {
+                        stream: remoteStream,
+                        hasAudio: remoteStream.getAudioTracks().length > 0,
+                        hasVideo: remoteStream.getVideoTracks().length > 0
+                    });
+                }
             };
 
             // Handle connection state changes
             pc.onconnectionstatechange = () => {
                 console.log(`🔌 Connection state for ${remoteUserId}:`, pc.connectionState);
 
+                if (pc.connectionState === 'connected') {
+                    console.log(`✅ Successfully connected to ${remoteUserId}`);
+                }
+
                 if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+                    console.log(`❌ Connection ${pc.connectionState} for ${remoteUserId}`);
                     removePeerConnection(remoteUserId);
                 }
             };
 
-            // Create offer if needed
+            // Create and send offer if needed (host flow)
             if (createOffer) {
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                signalingClient.current.sendOffer(remoteUserId, offer);
+                try {
+                    console.log(`📤 Creating offer for ${remoteUserId}...`);
+                    const offer = await pc.createOffer({
+                        offerToReceiveAudio: true,
+                        offerToReceiveVideo: true
+                    });
+
+                    await pc.setLocalDescription(offer);
+                    console.log(`✅ Set local description (offer) for ${remoteUserId}`);
+
+                    signalingClient.current.sendOffer(remoteUserId, offer);
+                } catch (err) {
+                    console.error(`❌ Error creating/sending offer to ${remoteUserId}:`, err);
+                    throw err;
+                }
             }
 
             return pc;
         } catch (err) {
             console.error('❌ Error creating peer connection:', err);
+            // Clean up failed connection
+            if (peerConnections.current.has(remoteUserId)) {
+                peerConnections.current.get(remoteUserId)?.close();
+                peerConnections.current.delete(remoteUserId);
+            }
             throw err;
         }
     };
 
-    // Handle received offer
+    // Handle received offer (guest flow)
     const handleOffer = async (remoteUserId, offer) => {
         try {
+            console.log(`📥 Handling offer from ${remoteUserId}...`);
+
+            // Create peer connection without creating an offer
             const pc = await createPeerConnection(remoteUserId, false);
+
+            // Set remote description from received offer
+            console.log(`📝 Setting remote description (offer) for ${remoteUserId}`);
             await pc.setRemoteDescription(new RTCSessionDescription(offer));
 
+            // Create answer
+            console.log(`📤 Creating answer for ${remoteUserId}...`);
             const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
 
+            // Set local description with our answer
+            await pc.setLocalDescription(answer);
+            console.log(`✅ Set local description (answer) for ${remoteUserId}`);
+
+            // Send answer back to the peer
             signalingClient.current.sendAnswer(remoteUserId, answer);
         } catch (err) {
-            console.error('❌ Error handling offer:', err);
+            console.error(`❌ Error handling offer from ${remoteUserId}:`, err);
+            // Clean up on error
+            removePeerConnection(remoteUserId);
         }
     };
 
-    // Handle received answer
+    // Handle received answer (host flow)
     const handleAnswer = async (remoteUserId, answer) => {
         try {
+            console.log(`📥 Handling answer from ${remoteUserId}...`);
+
             const pc = peerConnections.current.get(remoteUserId);
-            if (pc) {
-                await pc.setRemoteDescription(new RTCSessionDescription(answer));
+            if (!pc) {
+                console.error(`❌ No peer connection found for ${remoteUserId}`);
+                return;
             }
+
+            // Set remote description from received answer
+            console.log(`📝 Setting remote description (answer) for ${remoteUserId}`);
+            await pc.setRemoteDescription(new RTCSessionDescription(answer));
+            console.log(`✅ WebRTC handshake completed with ${remoteUserId}`);
         } catch (err) {
-            console.error('❌ Error handling answer:', err);
+            console.error(`❌ Error handling answer from ${remoteUserId}:`, err);
         }
     };
 
